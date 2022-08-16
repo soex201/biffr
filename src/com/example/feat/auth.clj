@@ -83,7 +83,7 @@
 
 (defn signout [{:keys [session]}]
   {:status 303
-   :headers {"location" "/"}
+   :headers {"location" "/app"}
    :session (dissoc session :uid)})
 
 (def signin-printed

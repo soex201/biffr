@@ -2,7 +2,6 @@
   (:require [com.biffweb :as biff]
             [com.example.feat.app :as app]
             [com.example.feat.auth :as auth]
-            [com.example.feat.home :as home]
             [com.example.feat.worker :as worker]
             [com.example.schema :refer [malli-opts]]
             [clojure.java.io :as io]
@@ -15,7 +14,6 @@
 (def features
   [app/features
    auth/features
-   home/features
    worker/features])
 
 (def routes [["" {:middleware [anti-forgery/wrap-anti-forgery
