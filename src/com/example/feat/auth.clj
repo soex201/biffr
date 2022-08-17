@@ -78,12 +78,12 @@
       {:status 303
        :headers {"location" "/auth/fail/"}}
       {:status 303
-       :headers {"location" "/app"}
+       :headers {"location" "/"}
        :session (assoc session :uid (or existing-user-id (get-user-id)))})))
 
 (defn signout [{:keys [session]}]
   {:status 303
-   :headers {"location" "/app"}
+   :headers {"location" "/"}
    :session (dissoc session :uid)})
 
 (def signin-printed

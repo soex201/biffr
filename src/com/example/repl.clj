@@ -1,5 +1,7 @@
 (ns com.example.repl
-  (:require [com.biffweb :as biff :refer [q]]))
+  (:require 
+    [com.biffweb :as biff :refer [q]]
+    [xtdb.api :as xt]))
 
 (defn get-sys []
   (biff/assoc-db @biff/system))
@@ -67,5 +69,19 @@
                                     [author :user/email email]]}
                           post-id))]
     {:title title :body body :email email})
+  
+  (let [{:keys [biff/db]} (get-sys)
+        id (parse-uuid "dbc80f25-f0f9-4cfd-8cd3-2826149faccf")]
+    (xt/pull db 
+      [:xt/id :post/title :post/body {:post/user [:user/email]} :post/time]
+      id))
+  
+  
+  (let [{:post/keys [title body user] :keys [xt/id]} (let [{:keys [biff/db]} (get-sys)
+        id (parse-uuid "dbc80f25-f0f9-4cfd-8cd3-2826149faccf")]
+    (xt/pull db 
+      [:xt/id :post/title :post/body {:post/user [:user/email]}]
+      id))]
+    (:user/email user))
 
   (sort (keys @biff/system)))

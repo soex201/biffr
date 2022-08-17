@@ -2,37 +2,22 @@
   (:require
     [com.example.middleware :as mid]
     [com.biffweb :as biff]
-    [xtdb.api :as xt]))
+    [xtdb.api :as xt]
+    [clojure.string :as str]))
 
 ;;=== DB ===
 (defn get-posts 
   [db]
-  (biff/q db 
-    '{:find [id title body email time]
-      :keys [post-id post-title post-body post-author post-time]
-      :where [[id :post/title title]
-              [id :post/body body]
-              [id :post/created time]
-              [id :post/user author-id]
-              [author-id :user/email email]]
-      :order-by [[time :desc]]}))
+  (->> (biff/q db 
+         '{:find (pull post [* {:post/user [*]}])
+           :where [[post :post/title]]})
+    (sort-by :post/created #(compare %2 %1))))
 
 (defn get-post
-  [id node]
-  (let [[title body author time] (first (biff/q (xt/db node)
-                                          '{:find [title body email time]
-                                            :in [id]
-                                            :where [[id :post/title title]
-                                                    [id :post/body body]
-                                                    [id :post/created time]
-                                                    [id :post/user author-id]
-                                                    [author-id :user/email email]]}
-                                          (parse-uuid id)))]
-    {:post-id id 
-     :post-title title 
-     :post-body body 
-     :post-author author 
-     :post-time time}))
+  [id db]
+  (xt/pull db 
+    [:xt/id :post/title :post/body {:post/user [:user/email :xt/id]} :post/created]
+    (parse-uuid id)))
 
 (defn update-post!
   [id title body req]
@@ -115,17 +100,18 @@
      [:input.danger {:type "submit" :value "Delete"}])])
 
 (defn render-post
-  [{:keys [post-id post-title post-body post-author post-time]} email]
-  [:article.post {:id (str "post-" post-id)}
-   [:header
-    [:div
-     [:h1 post-title]
-     [:div.about (str "by " (first (clojure.string/split post-author #"@")) " on " post-time)]]
-    (if email 
-      [:a.action {:hx-get (str "/app/update/" post-id)
-                  :hx-target (str "#post-" post-id)
-                  :hx-swap "outerHTML"} "Edit"])]
-   [:p.body post-body]])
+  [{:post/keys [title body user created] :keys [xt/id]} email]
+  (let [post-author (:user/email user)]
+    [:article.post {:id (str "post-" id)}
+     [:header
+      [:div
+       [:h1 title]
+       [:div.about (str "by " (first (str/split post-author #"@")) " on " created)]]
+      (when (= email post-author) 
+        [:a.action {:hx-get (str "/app/update/" id)
+                    :hx-target (str "#post-" id)
+                    :hx-swap "outerHTML"} "Edit"])]
+     [:p.body body]]))
 
 (defn index
   [{:keys [email posts]}]
@@ -134,7 +120,7 @@
      :email email}
     [:header
      [:h1 "Posts"]
-     (if email 
+     (when email 
        [:a.action {:hx-get "/app/create"
                    :hx-target "header"
                    :hx-swap "outerHTML"} "New"])]
@@ -174,18 +160,18 @@
 
 ;; == Handler ==
 (defn app
-  [{:keys [session biff/db] :as req}]
+  [{:keys [session biff/db]}]
   (let [{:user/keys [email]} (xt/entity db (:uid session))
         posts (get-posts db)]    
-    (biff/render (index {:email email
-                         :posts posts}))))
+    (index {:email email
+            :posts posts})))
 
 (defn login
   [_]
-  (biff/render (login-form)))
+  (login-form))
 
 (defn get-update-form
-  [{:keys [path-params biff/db] :as req}]
+  [{:keys [path-params biff/db]}]
   (let [id (:id path-params)
         [title body] (first (biff/q db 
                               '{:find [title body]
@@ -193,7 +179,7 @@
                                 :where [[post-id :post/title title]
                                         [post-id :post/body body]]}
                               (parse-uuid id)))]
-    (biff/render (update-form {:id id :title title :body body}))))
+    (update-form {:id id :title title :body body})))
 
 (defn update-post
   [{:keys [path-params params session biff/db biff.xtdb/node] :as req}]
@@ -202,7 +188,7 @@
         body (:body params)
         {:user/keys [email]} (xt/entity db (:uid session))]
     (update-post! id title body req)
-    (render-post (get-post id node) email)))
+    (render-post (get-post id (xt/db node)) email)))
 
 (defn delete-post
   [{:keys [path-params] :as req}]
@@ -211,7 +197,7 @@
 
 (defn get-create-form
   [_]
-  (biff/render (create-form)))
+  (create-form))
 
 (defn create-post
   [{:keys [params session] :as req}]
@@ -222,17 +208,22 @@
   {:status 303
    :headers {"location" "/"}})
 
-(defn home
-  [_]
-  {:status 303
-   :headers {"location" "/"}})
+(defn wrap-update [handler]
+  (fn [{:keys [session path-params biff/db] :as req}]
+    (let [id (:id path-params)
+          {:post/keys [user]} (get-post id db)]
+      (if (= (:xt/id user) (:uid session))
+        (handler req)
+        {:status 303
+         :headers {"location" "/"}}))))
 
 (def features
   {:routes [""
             ["/" {:get app}]
             ["/login" {:get login}]
             ["/app" {:middleware [mid/wrap-signed-in]}
-             ["/update/:id" {:get get-update-form
+             ["/update/:id" {:middleware [wrap-update]
+                             :get get-update-form
                              :put update-post
                              :delete delete-post}]
              ["/create/" {:get get-create-form
